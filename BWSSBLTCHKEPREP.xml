@@ -1,0 +1,252 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<dataTemplate version="1.0" defaultPackage="" name="BWSSBLISTCHKREP">
+<parameters>
+<parameter name="P_OPERATING_UNIT" dataType="character"/>
+<parameter name="P_SUP_NAME" 	   dataType="character"/>
+<parameter name="P_BANK_AC_NUM"    dataType="character"/>
+<parameter name="P_VOUCHER_NUM"    dataType="character"/>
+<parameter name="P_DATE_FROM" 	   dataType="date"/>
+<parameter name="P_DATE_TO" 	   dataType="date"/>
+</parameters>
+<dataQuery>
+<sqlStatement name="Q_OU">
+<![CDATA[SELECT name OU
+       FROM
+       hr_operating_units
+       WHERE NVL(name ,0)            =  NVL(NVL(:P_OPERATING_UNIT,name ),0)
+]]>
+</sqlStatement>
+<sqlStatement name="Q_DATE">
+<![CDATA[SELECT to_char(:P_DATE_FROM,'DD-MON-RRRR') "FROM_DATE", 
+				to_char(:P_DATE_TO,'DD-MON-RRRR') "TO_DATE"
+       FROM dual
+]]>
+</sqlStatement>
+<sqlStatement name="Q_COUNT">
+<![CDATA[SELECT 
+       count(to_char(aca.check_date,'DD-MON-RRRR')) "COUNT"
+  FROM ap_checks_all aca, 
+       ap_invoice_payments_all aipa, 
+       ap_invoices_all aia,
+       ap_suppliers asa,
+       hr_operating_units hou,
+       ce_bank_branches_v cbb,
+       ce_bank_accounts cba,
+       ce_bank_acct_uses_all cbau
+    WHERE  1                              =  1
+       AND nvl(UPPER(aca.vendor_site_code),0)                     <>  UPPER('Petty Cash')
+       AND aia.invoice_id                 =  aipa.invoice_id
+       AND aca.check_id                   =  aipa.check_id
+       AND aipa.set_of_books_id           =  hou.set_of_books_id
+       AND aipa.org_id                    =  hou.organization_id
+       AND cbb.branch_party_id(+)         =  cba.bank_branch_id
+       AND asa.vendor_id                  =  aia.vendor_id
+       AND cbau.bank_account_id           =  cba.bank_account_id(+)
+       and aca.ce_bank_acct_use_id        =  cbau.bank_acct_use_id(+)
+       AND NVL(cba.bank_account_num,'X') =   NVL(NVL(:P_BANK_AC_NUM,cba.bank_account_num),'X')
+       AND NVL(aia.tax_invoice_internal_seq,'X')       =  NVL(NVL(:P_VOUCHER_NUM,aia.tax_invoice_internal_seq),'X')
+       AND NVL(hou.name  ,'X') =  NVL(NVL(:P_OPERATING_UNIT,hou.name ),'X')
+       AND NVL(asa.vendor_name  ,'X')     =  NVL(NVL(:P_SUP_NAME,asa.vendor_name ),'X')
+       AND trunc(aca.check_date) BETWEEN trunc(:P_DATE_FROM) AND trunc(:P_DATE_TO)
+]]>
+</sqlStatement>
+<sqlStatement name="Q_M">
+<![CDATA[SELECT 
+       distinct to_char(aca.check_date,'DD-MON-RRRR') "CHECQUE_DATE_MAIN",aca.check_date
+  FROM ap_checks_all aca, 
+       ap_invoice_payments_all aipa, 
+       ap_invoices_all aia,
+       ap_suppliers asa,
+       --hr_operating_units hou,
+       ce_bank_branches_v cbb,
+       ce_bank_accounts cba,
+       ce_bank_acct_uses_all cbau,
+       xla.xla_transaction_entities xte,
+                   xla.xla_events xe,
+                   xla.xla_ae_headers xah,
+                   xla.xla_ae_lines xal,
+                   gl_code_combinations gcc
+    WHERE  1                              =  1
+      AND nvl(UPPER(aca.vendor_site_code),0)                     <>  UPPER('Petty Cash')
+       AND aia.invoice_id                 =  aipa.invoice_id
+       AND aca.check_id                   =  aipa.check_id
+       --AND aipa.set_of_books_id           =  hou.set_of_books_id
+       --AND aipa.org_id                    =  hou.organization_id
+       AND cbb.branch_party_id(+)         =  cba.bank_branch_id
+       AND asa.vendor_id                  =  aia.vendor_id
+       AND cbau.bank_account_id           =  cba.bank_account_id(+)
+       and aca.ce_bank_acct_use_id        =  cbau.bank_acct_use_id(+)
+       AND xal.application_id = xah.application_id
+                   AND xal.ae_header_id = xah.ae_header_id
+                   AND gcc.code_combination_id = xal.code_combination_id
+                   AND xah.application_id = xe.application_id
+                   AND xah.event_id = xe.event_id
+                   AND xe.application_id = xte.application_id
+                   AND xte.application_id = 200
+                   AND xe.entity_id = xte.entity_id
+                   AND xte.entity_code = 'AP_PAYMENTS'
+                   AND XTE.SOURCE_ID_INT_1 = aca.check_id
+                   AND xal.ACCOUNTING_CLASS_CODE='CASH'
+       AND NVL(cba.bank_account_num,'X') =   NVL(NVL(:P_BANK_AC_NUM,cba.bank_account_num),'X')
+       AND NVL(aia.tax_invoice_internal_seq,'X')       =  NVL(NVL(:P_VOUCHER_NUM,aia.tax_invoice_internal_seq),'X')
+        AND gcc.segment2 IN
+                          (SELECT ffv.flex_value
+                             FROM fnd_flex_value_sets ffvs,
+                                  fnd_flex_values ffv,
+                                  fnd_flex_values_tl ffvt
+                            WHERE     ffvs.flex_value_set_name =
+                                         'XX_BWSSB_DIVISION'
+                                  AND ffvs.flex_value_set_id =
+                                         ffv.flex_value_set_id
+                                  AND ffv.flex_value_id = ffvt.flex_value_id
+                                  AND ffvt.description = :P_OPERATING_UNIT)
+       AND NVL(asa.vendor_name  ,'X')     =  NVL(NVL(:P_SUP_NAME,asa.vendor_name ),'X')
+       AND trunc(aca.check_date) BETWEEN trunc(:P_DATE_FROM) AND trunc(:P_DATE_TO)
+     GROUP BY 
+        aca.check_date
+ ORDER BY aca.check_date asc
+]]>
+</sqlStatement>
+<sqlStatement name="Q_1">
+<![CDATA[SELECT DISTINCT
+         aia.voucher_num "VOUCHER_NUMBER",
+         TO_CHAR (aia.invoice_date, 'DD-MON-RRRR') "TRANSACTION_DATE",
+         TO_CHAR (aca.check_date, 'DD-MON-RRRR') "CHECQUE_DATE",
+         CASE
+            WHEN aia.attribute1 IS NULL THEN TO_CHAR (aca.check_number)
+            ELSE aia.attribute1
+         END
+            "CHECK_NUMBER",
+         aia.invoice_num "INVOICE_NUMBER",
+		 (select name from hr_operating_units where organization_id=aia.org_id)  "DIVISION",
+         cbb.bank_name "NAME_OF_BANK",
+         cba.bank_account_num "BANK_ACCOUNT_NUMBER",
+         aca.amount "AMOUNT_PAID",
+         asa.vendor_name "AMOUNT_PAID_TO",
+         NULL "OPERATING_UNIT",
+         aia.org_id org_id,
+         eb.bank_name "SUP_BANK",
+         (SELECT DISTINCT ieba.BANK_ACCOUNT_NUM
+            FROM ap.ap_suppliers aps,
+                 ap.ap_supplier_sites_all apss,
+                 apps.iby_ext_bank_accounts ieba,
+                 apps.iby_account_owners iao,
+                 apps.iby_ext_banks_v ieb,
+                 apps.iby_ext_bank_branches_v iebb
+           WHERE     aps.vendor_id = apss.vendor_id
+                 AND iao.account_owner_party_id = aps.party_id
+                 AND ieba.ext_bank_account_id = iao.ext_bank_account_id
+                 AND ieb.bank_party_id = iebb.bank_party_id
+                 AND ieba.branch_id = iebb.branch_party_id
+                 AND ieba.bank_id = ieb.bank_party_id
+                 AND aps.vendor_id = aia.vendor_id
+                 AND apss.org_id = aia.org_id)
+            "REMIT_BANK_AC_NUM"
+    FROM ap_invoice_payments_all aipa,
+         ap_invoices_all aia,
+         ap_checks_all aca,
+         ap_suppliers asa,
+         ap_supplier_sites_all assa,
+         --hr_operating_units hou,
+         ce_bank_branches_v cbb,
+         ce_bank_accounts cba,
+         ce_bank_acct_uses_all cbau,
+         iby_ext_bank_accounts eba,
+         iby_account_owners ao,
+         iby_ext_banks_v eb,
+         iby_ext_bank_branches_v ebb,
+         xla.xla_transaction_entities xte,
+         xla.xla_events xe,
+         xla.xla_ae_headers xah,
+         xla.xla_ae_lines xal,
+         gl_code_combinations gcc
+   WHERE     1 = 1
+         AND NVL (UPPER (aca.vendor_site_code), 0) <> UPPER ('Petty Cash')
+         AND aia.invoice_id = aipa.invoice_id(+)
+         AND aca.check_id = aipa.check_id
+         --AND aia.org_id = hou.organization_id
+         AND asa.vendor_id(+) = aia.vendor_id
+         AND asa.vendor_id = assa.vendor_id
+         AND cbb.branch_party_id(+) = cba.bank_branch_id
+         AND cbau.bank_account_id = cba.bank_account_id(+)
+         AND aca.ce_bank_acct_use_id = cbau.bank_acct_use_id(+)
+         AND ao.account_owner_party_id(+) = asa.party_id
+         AND eba.ext_bank_account_id(+) = ao.ext_bank_account_id
+         AND eba.branch_id = ebb.branch_party_id(+)
+         AND eba.bank_id = eb.bank_party_id(+)
+         AND xal.application_id = xah.application_id
+         AND xal.ae_header_id = xah.ae_header_id
+         AND gcc.code_combination_id = xal.code_combination_id
+         AND xah.application_id = xe.application_id
+         AND xah.event_id = xe.event_id
+         AND xe.application_id = xte.application_id
+         AND xte.application_id = 200
+         AND xe.entity_id = xte.entity_id
+         AND xte.entity_code = 'AP_PAYMENTS'
+         AND XTE.SOURCE_ID_INT_1 = aca.check_id
+         AND NVL (aia.invoice_num, :p_voucher_num) =
+                NVL (:p_voucher_num, aia.invoice_num)
+         AND xal.ACCOUNTING_CLASS_CODE = 'CASH'
+         AND gcc.segment2 IN
+                (SELECT ffv.flex_value
+                   FROM fnd_flex_value_sets ffvs,
+                        fnd_flex_values ffv,
+                        fnd_flex_values_tl ffvt
+                  WHERE     ffvs.flex_value_set_name = 'XX_BWSSB_DIVISION'
+                        AND ffvs.flex_value_set_id = ffv.flex_value_set_id
+                        AND ffv.flex_value_id = ffvt.flex_value_id
+                        AND ffvt.description = :P_OPERATING_UNIT)
+         AND aca.check_date = :CHECQUE_DATE_MAIN
+GROUP BY aia.invoice_date,
+         aca.check_date,
+         aia.attribute1,
+         aia.invoice_num,
+         aia.voucher_num,
+         aca.check_number,
+         cbb.bank_name,
+         cba.bank_account_num,
+         aca.amount,
+         asa.vendor_name,
+         --hou.name,
+         aia.org_id,
+         eb.bank_name,
+         aia.invoice_num,
+         aia.invoice_id,
+         aia.org_id,
+         aia.vendor_id,
+         eba.masked_bank_account_num
+ORDER BY TO_DATE (TRANSACTION_DATE, 'DD-MM-RR'), CHECQUE_DATE 
+]]>
+</sqlStatement>
+</dataQuery>
+<dataStructure>
+  <group name="G_OU" source="Q_OU">
+	<element name="OU"        value="OU"/>
+  </group>
+  <group name="G_DATE" source="Q_DATE">
+	<element name="FROM_DATE"        value="FROM_DATE"/>
+	<element name="TO_DATE"          value="TO_DATE"/>
+  </group>
+  <group name="G_COUNT" source="Q_COUNT">
+        <element name="COUNT"        value="COUNT"/>
+  </group>
+  <group name="G_M" source="Q_M">
+   <element name="CHECQUE_DATE_MAIN"        value="CHECQUE_DATE_MAIN"/>
+	<group name="G_1" source="Q_1">
+		<element name="VOUCHER_NUMBER"        value="VOUCHER_NUMBER"/>
+		<element name="DIVISION"              value="DIVISION"/>
+		<element name="TRANSACTION_DATE"      value="TRANSACTION_DATE"/>
+		<element name="CHECQUE_DATE"      	  value="CHECQUE_DATE"/>
+		<element name="CHECK_NUMBER"          value="CHECK_NUMBER"/>
+		<element name="INVOICE_NUMBER"        value="INVOICE_NUMBER"/>
+		<element name="NAME_OF_BANK"  		  value="NAME_OF_BANK"/>
+		<element name="BANK_ACCOUNT_NUMBER"   value="BANK_ACCOUNT_NUMBER"/>
+		<element name="AMOUNT_PAID" 		  value="AMOUNT_PAID"/>
+		<element name="AMOUNT_PAID_TO" 		  value="AMOUNT_PAID_TO"/>
+		<element name="OPERATING_UNIT" 		  value="OPERATING_UNIT"/>
+		<element name="SUP_BANK" 		  	  value="SUP_BANK"/>
+		<element name="REMIT_BANK_AC_NUM"     value="REMIT_BANK_AC_NUM"/>
+	</group>
+   </group>
+</dataStructure>
+</dataTemplate>
